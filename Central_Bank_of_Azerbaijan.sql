@@ -125,44 +125,110 @@ create table cbar_currency_rates (
     value number(20,4)
 );
 drop table cbar_currency_rates;
+truncate table cbar_currency_rates;
 /*************************************************************************/
 
-select xmltype(convert_blob_to_clob('http://localhost:5000/cbar.xml')) as xml_data from dual;
 
 
-insert into cbar_currency_rates
-select
-    to_date(z.date_cbar, 'dd.mm.yyyy'),
-    y.type_cbar,
-    x.code,
-    x.nominal,
-    x.name,
-    x.value
-from xmltable(
-    '/ValCurs'
-    passing xmltype(convert_blob_to_clob('http://localhost:5000/cbar.xml')) columns
-        date_cbar varchar2(100) path '@Date',
-        type_cbar xmltype path 'ValType'
-) z, xmltable(
-    '/ValType'
-    passing z.type_cbar columns
-        type_cbar varchar2(30) path '@Type',
-        valutes xmltype path 'Valute'
+/***** create procedure ************************/
+create or replace procedure cbar_upsert(message out varchar2)
+is
+begin
+    -- Merge(insert or update):
+    merge into cbar_currency_rates cbar_table
+    using (
+        select
+            to_date(z.date_cbar, 'dd.mm.yyyy') as date_cbar,
+            y.type_cbar as type_cbar,
+            x.code as code,
+            x.nominal as nominal,
+            x.name as name_cbar,
+            x.value as value_cbar
+        from xmltable(
+            '/ValCurs'
+            passing xmltype(convert_blob_to_clob('http://localhost:5000/cbar.xml')) columns
+                date_cbar varchar2(100) path '@Date',
+                type_cbar xmltype path 'ValType'
+        ) z, xmltable(
+            '/ValType'
+            passing z.type_cbar columns
+                type_cbar varchar2(30) path '@Type',
+                valutes xmltype path 'Valute'
 
-) y, xmltable(
-    '/Valute'
-    passing y.valutes columns
-        code     varchar2(10)  path '@Code',
-        nominal  varchar2(10)  path 'Nominal',
-        name     varchar2(100) path 'Name',
-        value    number        path 'Value'
-) x;
+        ) y, xmltable(
+            '/Valute'
+            passing y.valutes columns
+                code     varchar2(10)  path '@Code',
+                nominal  varchar2(10)  path 'Nominal',
+                name     varchar2(100) path 'Name',
+                value    number        path 'Value'
+        ) x
+    ) cbar_xml
+    on (cbar_table.code = cbar_xml.code and cbar_table.rate_date = cbar_xml.date_cbar)
+    when matched then
+        update set value = cbar_xml.value_cbar
+    when not matched then
+        insert (rate_date, valtype, code, nominal, name, value)
+        values (
+            cbar_xml.date_cbar, cbar_xml.type_cbar, cbar_xml.code, cbar_xml.nominal, cbar_xml.name_cbar, cbar_xml.value_cbar
+        );
+    commit;
+    message:='Emeliyyat icra olundu!!!';
+exception
+    when others then
+    begin
+        rollback;
+        message:='Xeta bas verdi: '|| sqlerrm;
+    end;
+end;
 
+
+/********* Main Block ********/
+declare
+    message varchar2(50);
+begin
+    cbar_upsert(message);
+    dbms_output.put_line(message);
+end;
+
+
+-- check procedure:
+update cbar_currency_rates
+set value=3 where code='USD';
 commit;
 
 
 
+/*
+    Oracle Wallet ile bagli problem oldugu ucun python proxy server istifade etdim
+*/
+from flask import Flask, Response
+import requests
 
+app = Flask(__name__)
+
+@app.route("/cbar.xml")
+def proxy():
+    url = "https://www.cbar.az/currencies/13.06.2025.xml"
+    r = requests.get(url)
+    xml_text = r.text
+
+    '''
+    print("----------- XML TEXT -----------")
+    print(xml_text)
+    print("----------- END OF XML -----------")
+    '''
+    #if not xml_text.startswith('<?xml'):
+        #xml_text = '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_text
+
+    return Response(
+        xml_text,
+        status=r.status_code,
+        mimetype="application/xml",
+        #content_type='application/xml; charset=UTF-8'
+    )
+
+app.run(host='localhost', port=5000)
 
 
 
