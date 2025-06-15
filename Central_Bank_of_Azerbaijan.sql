@@ -119,12 +119,46 @@ from table(
 create table cbar_currency_rates (
     rate_date date,
     valtype varchar2(100),
-    code varchar2(10),
-    nominal number,
+    code varchar2(20),
+    nominal varchar2(100),
     name varchar2(100),
     value number(20,4)
 );
+drop table cbar_currency_rates;
 /*************************************************************************/
+
+select xmltype(convert_blob_to_clob('http://localhost:5000/cbar.xml')) as xml_data from dual;
+
+
+insert into cbar_currency_rates
+select
+    to_date(z.date_cbar, 'dd.mm.yyyy'),
+    y.type_cbar,
+    x.code,
+    x.nominal,
+    x.name,
+    x.value
+from xmltable(
+    '/ValCurs'
+    passing xmltype(convert_blob_to_clob('http://localhost:5000/cbar.xml')) columns
+        date_cbar varchar2(100) path '@Date',
+        type_cbar xmltype path 'ValType'
+) z, xmltable(
+    '/ValType'
+    passing z.type_cbar columns
+        type_cbar varchar2(30) path '@Type',
+        valutes xmltype path 'Valute'
+
+) y, xmltable(
+    '/Valute'
+    passing y.valutes columns
+        code     varchar2(10)  path '@Code',
+        nominal  varchar2(10)  path 'Nominal',
+        name     varchar2(100) path 'Name',
+        value    number        path 'Value'
+) x;
+
+commit;
 
 
 
