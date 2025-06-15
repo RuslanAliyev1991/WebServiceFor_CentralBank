@@ -202,14 +202,18 @@ commit;
 /*
     Oracle Wallet ile bagli problem oldugu ucun python proxy server istifade etdim
 */
-from flask import Flask, Response
+from flask import Flask, Response, request
+from datetime import datetime
 import requests
 
 app = Flask(__name__)
 
 @app.route("/cbar.xml")
 def proxy():
-    url = "https://www.cbar.az/currencies/13.06.2025.xml"
+    date = request.args.get('date')
+    if not date:
+        date = datetime.today().strftime('%d.%m.%Y')
+    url = f"https://www.cbar.az/currencies/{date}.xml"
     r = requests.get(url)
     xml_text = r.text
 
