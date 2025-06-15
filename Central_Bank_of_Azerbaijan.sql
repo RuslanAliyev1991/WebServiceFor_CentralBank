@@ -35,18 +35,60 @@ from dual;
 create or replace function convert_blob_to_clob(url varchar2)
 return clob
 is
+    -- clob and blob:
     l_blob blob;
     l_clob clob;
     l_dest_offset pls_integer := 1;
     l_src_offset pls_integer := 1;
     l_lang_ctx pls_integer := dbms_lob.default_lang_ctx;
     l_warning pls_integer;
+
+    -- utl_http:
+    request utl_http.req;
+    response utl_http.resp;
+    buffer_raw raw(1000);
 begin
-    l_blob := httpuritype(url).getblob();
+    /* 
+        httpuritype ile:
+        l_blob := httpuritype(url).getblob(); daha sade ve qisa usul
+    */
+
+    -- utl_http ile:
+    request:=utl_http.begin_request(
+        url  => convert_blob_to_clob.url,
+        method  => 'GET',
+        http_version  => 'HTTP/1.1',
+        request_context  => null,
+        https_host  => null
+    );
+    utl_http.set_header(
+        r  => request,
+        name  => 'user-agent',
+        value  => 'mozilla/5.0'
+    );
+    response:=utl_http.get_response(request);
+
+    /* gelen cavabi blob-a yaziriq */
+    -- create empty object for blob:
+    dbms_lob.createtemporary(l_blob, true);
+    begin
+        loop
+            utl_http.read_raw(
+                r  => response,
+                data  => buffer_raw,
+                len  => 1000
+            );
+            dbms_lob.writeappend(l_blob, utl_raw.length(buffer_raw), buffer_raw);            
+        end loop;
+    exception
+        when utl_http.end_of_body or no_data_found
+            then dbms_output.put_line('End Of File!!!');
+    end;
+    utl_http.end_response(r  => response);
+
+    /* BLOB → CLOB converting: */
     -- create empty object for clob:
     dbms_lob.createtemporary(l_clob, true);
-
-    -- BLOB → CLOB converting:
     dbms_lob.converttoclob(
         dest_lob     => l_clob,
         src_blob     => l_blob,
@@ -70,59 +112,20 @@ from table(
         xmltype(convert_blob_to_clob('http://localhost:5000/cbar.xml')).extract('/ValCurs/ValType/Valute')
     )
 ) x;
-/*************************************************************************************************************/
+/*********************************************************************************************************/
 
 
--- fetch xml data from cbar:
-set serveroutput on;
-declare
-    request utl_http.req;
-    response utl_http.resp;
-    buffer varchar2(1000);
-    c_buffer varchar2(2000);
-    converted varchar2(35);
-begin
-    request:=utl_http.begin_request(
-        url  => 'http://localhost:5000/cbar.xml',
-        method  => 'GET',
-        http_version  => 'HTTP/1.1',
-        request_context  => null,
-        https_host  => null
-    );
+/*** create table ****/
+create table cbar_currency_rates (
+    rate_date date,
+    valtype varchar2(100),
+    code varchar2(10),
+    nominal number,
+    name varchar2(100),
+    value number(20,4)
+);
+/*************************************************************************/
 
-    utl_http.set_header(
-        r  => request,
-        name  => 'user-agent',
-        value  => 'mozilla/5.0'
-    );
-    
-    /*utl_http.set_header(
-        r     => request,
-        name  => 'Content-Type',
-        value => 'application/xml; charset=UTF-8'
-    ); */
-    
-    response:=utl_http.get_response(request);
-    begin
-        loop
-            utl_http.read_text(
-                r  => response,
-                data  => buffer,
-                len  => 1000
-            );
-            c_buffer:=convert(buffer, 'AL32UTF8', 'UTF8');
-            dbms_output.put_line(c_buffer);
-        end loop;
-    exception
-        when utl_http.end_of_body or no_data_found
-            then dbms_output.put_line('End Of File!!!');
-    end;
-
-    /* converted:=convert('abş dolları', 'UTF8', 'AL32UTF8');
-    dbms_output.put_line(converted);*/
-
-    utl_http.end_response(r  => response);
-end;
 
 
 
