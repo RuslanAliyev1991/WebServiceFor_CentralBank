@@ -32,7 +32,7 @@ from dual;
 
 
 /****** Create convert (from blob to clob) function *******/
-create or replace function convert_blob_to_clob(url varchar2)
+create or replace function convert_blob_to_clob(url varchar2 default null)
 return clob
 is
     -- clob and blob:
@@ -53,6 +53,10 @@ begin
         l_blob := httpuritype(url).getblob(); daha sade ve qisa usul
     */
 
+    log_to_file(
+        p_message=>'web service is starting',
+        p_proc=>'convert_blob_to_clob function is starting...'
+    );
     -- utl_http ile:
     request:=utl_http.begin_request(
         url  => convert_blob_to_clob.url,
@@ -67,6 +71,7 @@ begin
         value  => 'mozilla/5.0'
     );
     response:=utl_http.get_response(request);
+    log_to_file(p_message=>'xml data was got');
 
     /* gelen cavabi blob-a yaziriq */
     -- create empty object for blob:
@@ -80,6 +85,7 @@ begin
             );
             dbms_lob.writeappend(l_blob, utl_raw.length(buffer_raw), buffer_raw);            
         end loop;
+        log_to_file(p_message=>'xml data was written to blob');
     exception
         when utl_http.end_of_body or no_data_found
             then dbms_output.put_line('End Of File!!!');
@@ -99,7 +105,21 @@ begin
         lang_context => l_lang_ctx,
         warning      => l_warning
     );
+    log_to_file(
+        p_proc=>'convert_blob_to_clob function ended...',
+        p_message=>'xml data was converted to blob'
+    );
     return l_clob;
+exception
+    when utl_http.request_failed then
+        begin
+            log_to_file(
+                p_proc=>'convert_blob_to_clob function is stopping...',
+                p_level=>'ERROR',
+                p_level_msg=>sqlerrm
+            );
+        end;
+        return null;
 end;
 ------------------------------------------------------------------------
 
@@ -130,10 +150,14 @@ truncate table cbar_currency_rates;
 
 
 
-/***** create procedure ************************/
+/***** create procedure for upsert ************************/
 create or replace procedure cbar_upsert(message out varchar2)
 is
 begin
+    log_to_file(p_proc=>'cbar_upsert procedure is starting...');
+    /*if convert_blob_to_clob('http://localhost:5000/cbar.xml') is null then
+        raise_application_error(-20001, 'convert_blob_to_clob function return null value');
+    end if; */
     -- Merge(insert or update):
     merge into cbar_currency_rates cbar_table
     using (
@@ -174,19 +198,82 @@ begin
         );
     commit;
     message:='Emeliyyat icra olundu!!!';
+    log_to_file(
+        p_message=>'information was inserted',
+        p_proc=>'cbar_upsert procedure ended...'
+    );
 exception
     when others then
-    begin
-        rollback;
-        message:='Xeta bas verdi: '|| sqlerrm;
-    end;
+        begin
+            rollback;
+            --message:='Xeta bas verdi: '|| sqlerrm;
+            log_to_file(
+                p_proc=>'cbar_upsert procedure is stopping...',
+                p_level=>'ERROR',
+                p_level_msg=>sqlerrm
+            );
+        end;
 end;
 
 
+
+/***** create procedure for log file *****************/
+create or replace procedure log_to_file(
+    p_message  varchar2 default null,
+    p_level  varchar2 default 'INFO',
+    p_level_msg varchar2 default null,
+    p_proc varchar2 default 'UNKNOWN'
+) 
+is
+    write_file utl_file.file_type;
+    log_text_line varchar2(600);
+begin
+    if p_level='ERROR' then
+        log_text_line:='['||to_char(sysdate, 'dd-mm-yyyy hh24:mi:ss')||'] ['
+            ||p_level||'] ['||p_level_msg||'] ['||p_proc||'] '||p_message;
+    else
+        log_text_line:='['||to_char(sysdate, 'dd-mm-yyyy hh24:mi:ss')||'] ['
+            ||p_level||'] ['||p_proc||'] '||p_message;
+    end if;
+    write_file:=utl_file.fopen(
+        location  => 'DBMS_DIR',
+        filename  => 'cbar_log.txt',
+        open_mode  => 'a',
+        max_linesize  => null
+    );
+    utl_file.put_line(
+        file  => write_file,
+        buffer  => log_text_line
+    );
+    utl_file.fclose(write_file);
+exception
+    when no_data_found or utl_file.invalid_path then
+        begin
+            write_file:=utl_file.fopen(
+                location  => 'DBMS_DIR',
+                filename  => 'cbar_log.txt',
+                open_mode  => 'w',
+                max_linesize  => null
+            );
+            utl_file.put_line(
+                file  => write_file,
+                buffer  => log_text_line
+            );
+            utl_file.fclose(write_file);
+        end;
+    when others then
+        dbms_output.put_line('loga yaza bilmedi');
+end;
+
+
+
+
 /********* Main Block ********/
+set serveroutput on;
 declare
     message varchar2(50);
 begin
+    log_to_file('main blocks run');
     cbar_upsert(message);
     dbms_output.put_line(message);
 end;
