@@ -86,7 +86,7 @@ begin
             ||p_level||'] ['||p_level_msg||'] ['||p_proc||'] '||p_message;
     else
         log_text_line:='['||to_char(sysdate, 'dd-mm-yyyy hh24:mi:ss')||'] ['
-            ||p_level||'] ['||p_proc||'] '||p_message;
+            ||p_level||'] ['||p_level_msg||'] ['||p_proc||'] '||p_message;
     end if;
     write_file:=utl_file.fopen(
         location  => 'DBMS_DIR',
